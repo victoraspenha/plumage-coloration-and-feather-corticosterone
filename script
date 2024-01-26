@@ -1,0 +1,194 @@
+## Third chapter script
+## Penha et al.
+
+## Removing leftovers
+rm(list=ls())
+
+## Needed packages
+library(lme4)
+library(ggplot2)
+library(psych)
+library(regclass)
+library(BBmisc)
+library(MuMIn)
+library(tidyverse)
+library(pls)
+library(rstatix)
+library(ggpubr)
+library(sjPlot)
+library(lmerTest)
+library(caret)
+library(leaps)
+library(olsrr)
+library(effects)
+library(glmmLasso)
+library(heatmaply)
+library(Metrics)
+library(semptools)
+library(sjmisc)
+library(sjPlot)
+library(jtools)
+library(optimx)
+library(multcomp)
+library(rstanarm)
+library(bayesplot)
+library(tidybayes)
+library(nclbayes)
+library(bayestestR)
+library(insight)
+library(see)
+
+## Getting data
+data <- read.csv("./data.csv", sep = ",")
+str(data)
+data
+
+## Removing rows we don't have CORT information
+data <- data[-which(data$CORT_2 == "NADA"),]
+table(data$Especie)
+
+## Classes
+colnames(data)
+class(data$Especie)
+data$Especie <- as.factor(data$Especie)
+class(data$Sexo)
+data$Sexo <- as.factor(data$Sexo)
+class(data$Idade)
+data$Idade <- as.factor(data$Idade)
+
+## Body condition per species
+table(data$Especie)
+
+data[which(data$Especie == "Myiothlypis leucoblephara"),"CondCorp"] <- 
+  lm(Peso~Asa, data = data[which(data$Especie == "Myiothlypis leucoblephara"),])$residuals
+
+data[which(data$Especie == "Basileuterus culicivorus"),"CondCorp"] <- 
+  lm(Peso~Asa, data = data[which(data$Especie == "Basileuterus culicivorus"),])$residuals
+
+data[which(data$Especie == "Conopophaga lineata"),"CondCorp"] <- 
+  lm(Peso~Asa, data = data[which(data$Especie == "Conopophaga lineata"),])$residuals
+
+data[which(data$Especie == "Haplospiza unicolor"),"CondCorp"] <- 
+  lm(Peso~Asa, data = data[which(data$Especie == "Haplospiza unicolor"),])$residuals
+
+
+## Results of the Body condition
+mod <-  lm(Peso~Asa, data = data[which(data$Especie == "Haplospiza unicolor"),])
+summary(mod)
+## Transforming CORT_2
+data$CORT_2 <- as.numeric(data$CORT_2)
+
+## Infection by haemosporidian parasites
+table(data$Haemosporidian)
+table(data$Sexo)
+table(data$Idade)
+
+## Removing male H. unicolor
+data <- data[-which(data$Especie == "Haplospiza unicolor" & data$Sexo == "M"),]
+
+## Checcking CORT
+table(data[which(data$CORT_2 == 2000),"Especie"])
+
+## Checking distribution
+hist(log(data$CORT_2))
+which(log(data$CORT_2) == "-Inf")
+
+data$CORT_3 <- log(data$CORT_2)
+for(i in 1:dim(data)[1]){
+  if(data$CORT_3[i] == "-Inf"){
+    data$CORT_3[i] <- 0
+    print(paste0(i, " ", "Corrected"))
+  } 
+  else{
+    print(i)
+  }
+}
+
+## Distributions
+hist(data$CORT_3)
+hist(data$CondCorp)
+hist(data$Theta)
+hist(normalize(data$Phi))
+hist(log(data$RAchieved))
+hist(data$Lum)
+hist(data$Chroma_Caro)
+
+## Model
+data3 <- data
+
+## Renaming columns
+colnames(data3)[c(12,15,17:21)] <- c("Age","Body_condition","Hue_φ","Achieved_saturation","Brilliance","Carotenoid_chroma","Corticosterone")
+levels(data3$Age) <- c("Adult", "Juvenile")
+table(data3$Age)
+## Correcting variables for model
+data3$Carotenoid_chroma <- scale(data3$Carotenoid_chroma)
+data3$Body_condition <- scale(data3$Body_condition)
+data3$Hue_φ <- normalize(data3$Hue_φ)
+data3$Achieved_saturation <- log(data3$Achieved_saturation)
+data3$Brilliance <- scale(data3$Brilliance)
+data3$Corticosterone <- scale(data3$Corticosterone)
+colnames(data3)[2] <- "Species"
+
+## Model itself
+model_plot <- stan_glmer(as.factor(Haemosporidian) ~ Carotenoid_chroma + Hue_φ + Achieved_saturation + Brilliance + Body_condition + Corticosterone + Age +
+                      (1|Species), na.action = na.fail, 
+                    family = binomial, 
+                    QR = TRUE,
+                    cores = 4,
+                    chains = 4, 
+                    adapt_delta = 0.99,
+                    data=data3)
+summary(model_plot)
+
+## Plotting figures for manuscript
+jpeg("Resultados.jpeg", width = 15, height = 10, units = 'in', res = 800) 
+color_scheme_set("gray")
+posterior <- as.matrix(model_plot)
+mcmc_areas(posterior,
+           pars = c("Achieved_saturation", "Corticosterone", "Carotenoid_chroma", "Hue_φ", "Brilliance", "Body_condition", "AgeJuvenile"),
+           prob = 0.5, prob_outer = 0.95) + 
+  xlab("Posterior distribution") + 
+  theme(axis.text = element_text(size=12),
+        axis.text.y = element_text(size = 20),
+        axis.text.x = element_text(size = 20),
+        axis.title = element_text(size=20,face="bold"))
+dev.off()
+
+## Model accuracy
+jpeg("Modelo1.jpeg", width = 4, height = 4, units = 'in', res = 800) 
+pp_check(model_plot, plotfun = "dens_overlay")
+dev.off()
+
+jpeg("Modelo2.jpeg", width = 6, height = 5, units = 'in', res = 800) 
+pp_check(model_plot, plotfun = "error_binned")
+dev.off()
+
+jpeg("Modelo3.jpeg", width = 6, height = 9, units = 'in', res = 800) 
+plot(model_plot)
+dev.off()
+
+jpeg("Modelo4.jpeg", width = 9, height = 9, units = 'in', res = 800) 
+plot(model_plot, "trace", pars = c("Achieved_saturation", "Corticosterone", "Carotenoid_chroma", "Hue_φ", "Brilliance", "Body_condition", "AgeJuvenile"))
+dev.off()
+
+jpeg("Modelo5.jpeg", width = 15, height = 9, units = 'in', res = 800) 
+mcmc_dens_overlay(model_plot)
+dev.off()
+
+## Plotting results
+data2 <- data
+class(data2$Haemosporidian)
+data2$Haemosporidian <- as.factor(data2$Haemosporidian)
+levels(data2$Haemosporidian) <- c("Absent", "Present")
+jpeg("Resultados_3.jpg", width = 10, height = 8, units = 'in', res = 1600) 
+g <- ggplot(data2, aes(x = as.factor(Haemosporidian), y = CORT_3)) + geom_boxplot() +  theme_bw() + 
+  xlab("Haemosporidian parasite occurrence") + ylab("Feather corticosterone concentration (pg/ug) - log scale") + 
+  facet_grid(~as.factor(Especie))
+
+h <- ggplot(data2, aes(x = as.factor(Haemosporidian), y =  log(RAchieved))) + geom_boxplot() + theme_bw() + 
+  xlab("Haemosporidian parasite occurrence") + ylab("Achieved saturation (%)") + 
+  facet_grid(~as.factor(Especie))
+ggarrange(g,h, nrow =2)
+dev.off()
+
+### End of code
