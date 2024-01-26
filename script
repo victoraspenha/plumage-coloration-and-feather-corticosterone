@@ -1,6 +1,3 @@
-## Third chapter script
-## Penha et al.
-
 ## Removing leftovers
 rm(list=ls())
 
